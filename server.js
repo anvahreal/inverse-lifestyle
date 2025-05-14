@@ -6,12 +6,14 @@ const QRCode = require("qrcode");
 const axios = require("axios");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
+// Middleware
 app.use(express.static(path.join(__dirname, "public")));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
+// Set up multer storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const dir = path.join(__dirname, "public", "uploads");
@@ -22,32 +24,70 @@ const storage = multer.diskStorage({
     cb(null, `${Date.now()}_${file.originalname}`);
   },
 });
-
 const upload = multer({ storage: storage });
 
+// POST /submit
 app.post("/submit", upload.single("paymentProof"), (req, res) => {
+  const filePath = path.join(__dirname, "data.json");
+
+  let data = [];
+  if (fs.existsSync(filePath)) {
+    try {
+      const raw = fs.readFileSync(filePath);
+      data = raw.length ? JSON.parse(raw) : [];
+    } catch (err) {
+      console.error("Failed to parse data.json, resetting.");
+      fs.writeFileSync(filePath, JSON.stringify([], null, 2));
+      data = [];
+    }
+  }
+
+  const { accountName, email, phone } = req.body;
+
+  const exists = data.find(entry => entry.email === email || entry.phone === phone);
+  if (exists) {
+    return res.status(400).send("You've already registered with this phone or email.");
+  }
+
   const formData = {
-    accountName: req.body.accountName,
-    email: req.body.email,
-    phone: req.body.phone,
+    accountName,
+    email,
+    phone,
     proof: req.file ? `/uploads/${req.file.filename}` : null,
     approved: false,
     qr: null
   };
 
-  const filePath = path.join(__dirname, "data.json");
-  let data = [];
-  if (fs.existsSync(filePath)) {
-    data = JSON.parse(fs.readFileSync(filePath));
-  }
   data.push(formData);
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-
   res.redirect("/thankyou.html");
 });
 
-app.get("/admin", (req, res) => {
-  const data = JSON.parse(fs.readFileSync("data.json"));
+// Basic Auth Middleware for Admin
+const adminAuth = (req, res, next) => {
+  const auth = { login: "admin", password: "secret123" }; // 🔒 change this!
+  const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
+  const [login, password] = Buffer.from(b64auth, "base64").toString().split(":");
+
+  if (login === auth.login && password === auth.password) return next();
+
+  res.set("WWW-Authenticate", 'Basic realm="Admin Area"');
+  res.status(401).send("Authentication required.");
+};
+
+// GET /admin (Protected)
+app.get("/admin", adminAuth, (req, res) => {
+  const filePath = path.join(__dirname, "data.json");
+  let data = [];
+  if (fs.existsSync(filePath)) {
+    try {
+      const raw = fs.readFileSync(filePath);
+      data = raw.length ? JSON.parse(raw) : [];
+    } catch (err) {
+      data = [];
+    }
+  }
+
   let html = `
   <!DOCTYPE html>
   <html lang="en">
@@ -86,22 +126,35 @@ app.get("/admin", (req, res) => {
   res.send(html);
 });
 
-
+// POST /approve/:id
 app.post("/approve/:id", async (req, res) => {
   const id = req.params.id;
-  const data = JSON.parse(fs.readFileSync("data.json"));
-  data[id].approved = true;
+  const filePath = path.join(__dirname, "data.json");
 
+  let data = [];
+  try {
+    const raw = fs.readFileSync(filePath);
+    data = JSON.parse(raw);
+  } catch {
+    return res.status(500).send("Could not read data.");
+  }
+
+  if (!data[id]) return res.status(404).send("User not found.");
+
+  data[id].approved = true;
   const userQRData = `${data[id].accountName} | ${data[id].email} | ${data[id].phone}`;
+
   const qrDir = path.join(__dirname, "public", "qrs");
   if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir);
+
   const qrPath = path.join(qrDir, `qr_${id}.png`);
-
-  QRCode.toFile(qrPath, userQRData, async () => {
+  try {
+    await QRCode.toFile(qrPath, userQRData);
     data[id].qr = `/qrs/qr_${id}.png`;
-    fs.writeFileSync("data.json", JSON.stringify(data, null, 2));
 
-    // Sending email with the QR code as attachment
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+
+    // Send email with QR code (OPTIONAL)
     const emailData = {
       from: "noreply@inv3rse.com",
       to: data[id].email,
@@ -115,21 +168,19 @@ app.post("/approve/:id", async (req, res) => {
       ],
     };
 
-    try {
-      // Send email via Resend API
-      const response = await axios.post("https://api.resend.com/emails", emailData, {
-        headers: {
-          Authorization: `Bearer re_jnmANYA9_EAzfJwMo7rn4rgksHmzJ8qLD`,
-        },
-      });
+    await axios.post("https://api.resend.com/emails", emailData, {
+      headers: {
+        Authorization: `Bearer re_jnmANYA9_EAzfJwMo7rn4rgksHmzJ8qLD`,
+      },
+    });
 
-      console.log("Email sent successfully:", response.data);
-      res.redirect("/admin");
-    } catch (error) {
-      console.error("Error sending email:", error);
-      res.redirect("/admin");
-    }
-  });
+    console.log("Email sent to", data[id].email);
+    res.redirect("/admin");
+  } catch (err) {
+    console.error("QR or email failed:", err);
+    res.redirect("/admin");
+  }
 });
 
-app.listen(PORT, () => console.log(`Running at http://localhost:${PORT}`));
+// Start server
+app.listen(PORT, () => console.log(`✅ Server running at http://localhost:${PORT}`));
