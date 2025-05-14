@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="shortcut icon" href="/assets/images/INV3RSE_L.jpg" type="image/jpg" />
+  <link rel="stylesheet" href="/assets/styles/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700&display=swap" rel="stylesheet" />
+  <title>Inv3rse Republik</title>
+</head>
+<body>
+  <div class="overlay"></div>
+
+  <main class="wrapper fade-in">
+    <section class="content">
+      <h1>Inv3rse Lifestyle</h1>
+      <p>After making payment, fill in the form below to verify your ticket and receive your QR code.</p>
+    </section>
+
+    <form action="/submit" method="POST" enctype="multipart/form-data" class="form">
+      <label for="u_name">Account Name</label>
+      <input type="text" id="u_name" name="accountName" required />
+
+      <label for="u_email">Email</label>
+      <input type="email" id="u_email" name="email" required />
+
+      <label for="u_phone">Phone Number</label>
+      <input type="tel" id="u_phone" name="phone" required />
+
+      <label for="u_file">Proof of Payment</label>
+      <input type="file" id="u_file" name="paymentProof" required />
+
+      <button type="submit">Get QR Code</button>
+    </form>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Inv3rse Lifestyle. All rights reserved.</p>
+    <p>Disclaimer: By providing your contact details, you agree to receive promotional messages, updates, and advertisements from us via SMS, email, or other communication channels. Your information will be used in accordance with our privacy policy.</p>
+  </footer>
+
+  <script src="/assets/js/script.js"></script>
+</body>
+</html>

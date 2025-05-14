@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="/assets/styles/styles.css" />
+  <title>Thank You</title>
+  <style>
+    body {
+      font-family: 'Outfit', sans-serif;
+      background-color: #0f172a;
+      color: #f1f5f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      animation: fadeIn 1s ease-in;
+      overflow: hidden;
+    }
+
+    .thankyou-container {
+      background: #1e293b;
+      padding: 5rem;
+      border-radius: 1rem;
+      text-align: center;
+      max-width: 500px;
+      animation: bounceIn 0.8s ease;
+      z-index: 1;
+      position: relative;
+    }
+
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    p {
+      font-size: 2rem;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    @keyframes bounceIn {
+      0% { transform: scale(0.9); opacity: 0; }
+      60% { transform: scale(1.05); opacity: 1; }
+      100% { transform: scale(1); }
+    }
+  </style>
+</head>
+<body>
+  <div class="thankyou-container">
+    <h1>🎉 Thank You!</h1>
+    <p>Your submission has been received.<br>You'll receive your QR code shortly.</p>
+  </div>
+
+  <!-- Confetti script from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script>
+    // Trigger confetti burst on load
+    window.onload = () => {
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+
+      // You can even set a timer for repeated bursts if you want:
+      // setInterval(() => confetti({ particleCount: 30, spread: 50 }), 1000);
+    };
+  </script>
+</body>
+</html>
