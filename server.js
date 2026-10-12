@@ -1,3 +1,4 @@
+require("dotenv").config();
 const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
@@ -26,25 +27,35 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage: storage });
 
+// Helper: read data.json safely
+function readData() {
+  const filePath = path.join(__dirname, "data.json");
+  if (!fs.existsSync(filePath)) return [];
+  try {
+    const raw = fs.readFileSync(filePath);
+    return raw.length ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Helper: write data.json
+function writeData(data) {
+  const filePath = path.join(__dirname, "data.json");
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
 // POST /submit
 app.post("/submit", upload.single("paymentProof"), (req, res) => {
-  const filePath = path.join(__dirname, "data.json");
+  const data = readData();
 
-  let data = [];
-  if (fs.existsSync(filePath)) {
-    try {
-      const raw = fs.readFileSync(filePath);
-      data = raw.length ? JSON.parse(raw) : [];
-    } catch (err) {
-      console.error("Failed to parse data.json, resetting.");
-      fs.writeFileSync(filePath, JSON.stringify([], null, 2));
-      data = [];
-    }
+  const { accountName, email, phone, ticketType } = req.body;
+
+  if (!accountName || !email || !phone) {
+    return res.status(400).send("Missing required fields.");
   }
 
-  const { accountName, email, phone } = req.body;
-
-  const exists = data.find(entry => entry.email === email || entry.phone === phone);
+  const exists = data.find(e => e.email === email || e.phone === phone);
   if (exists) {
     return res.status(400).send("You've already registered with this phone or email.");
   }
@@ -53,133 +64,175 @@ app.post("/submit", upload.single("paymentProof"), (req, res) => {
     accountName,
     email,
     phone,
+    ticketType: ticketType || "General",
     proof: req.file ? `/uploads/${req.file.filename}` : null,
     approved: false,
-    qr: null
+    qr: null,
+    registeredAt: new Date().toISOString(),
   };
 
   data.push(formData);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  writeData(data);
   res.redirect("/thankyou.html");
 });
 
-// Basic Auth Middleware for Admin
+// ─── Admin Auth ───────────────────────────────────────────────────────────────
+const ADMIN_USER = process.env.ADMIN_USER || "admin";
+const ADMIN_PASS = process.env.ADMIN_PASS || "secret123";
+
 const adminAuth = (req, res, next) => {
-  const auth = { login: "admin", password: "secret123" }; // 🔒 change this!
   const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
   const [login, password] = Buffer.from(b64auth, "base64").toString().split(":");
-
-  if (login === auth.login && password === auth.password) return next();
-
+  if (login === ADMIN_USER && password === ADMIN_PASS) return next();
   res.set("WWW-Authenticate", 'Basic realm="Admin Area"');
   res.status(401).send("Authentication required.");
 };
 
-// GET /admin (Protected)
+// ─── GET /admin ───────────────────────────────────────────────────────────────
 app.get("/admin", adminAuth, (req, res) => {
-  const filePath = path.join(__dirname, "data.json");
-  let data = [];
-  if (fs.existsSync(filePath)) {
-    try {
-      const raw = fs.readFileSync(filePath);
-      data = raw.length ? JSON.parse(raw) : [];
-    } catch (err) {
-      data = [];
-    }
-  }
+  const data = readData();
 
-  let html = `
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <link rel="stylesheet" href="/assets/styles/styles.css" />
-    <title>Admin Panel - Inv3rse Republik</title>
-  </head>
-  <body>
-    <div class="overlay"></div>
-    <main class="wrapper fade-in">
-      <section class="content">
-        <h1>Admin Panel</h1>
-        <p>Manage all registered attendees below.</p>
-      </section>
-      <ul style="list-style: none; padding: 0;">`;
-
-  data.forEach((entry, i) => {
-    html += `
-      <li style="margin-bottom: 30px; background: rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
-        <p><strong>${entry.accountName}</strong><br>
-        ${entry.email} | ${entry.phone}</p>
-        <p>Payment Proof:<br>
-          <img src="${entry.proof}" alt="proof" style="max-width: 150px; border-radius: 8px;" />
-        </p>
-        ${entry.qr ? `<p>QR Code:<br><img src="${entry.qr}" alt="QR Code" style="max-width: 150px; border-radius: 8px;" /></p>` : ''}
-        ${!entry.approved ? `
-        <form action="/approve/${i}" method="POST">
-          <button>Approve & Generate QR</button>
-        </form>` : '<p><strong style="color: #66ff7f;">Approved</strong></p>'}
-      </li>`;
+  const ticketCounts = {};
+  data.forEach(e => {
+    const t = e.ticketType || "General";
+    ticketCounts[t] = (ticketCounts[t] || 0) + 1;
   });
 
-  html += `</ul></main></body></html>`;
-  res.send(html);
+  const approvedCount = data.filter(e => e.approved).length;
+  const pendingCount = data.length - approvedCount;
+
+  const statsHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:32px;">
+      ${[
+        { label: "Total", val: data.length, color: "#66ff7f" },
+        { label: "Approved", val: approvedCount, color: "#00cc99" },
+        { label: "Pending", val: pendingCount, color: "#f59e0b" },
+      ].map(s => `
+        <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;text-align:center;">
+          <div style="font-size:2rem;font-weight:900;color:${s.color};">${s.val}</div>
+          <div style="font-size:0.75rem;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:2px;margin-top:4px;">${s.label}</div>
+        </div>
+      `).join("")}
+    </div>
+  `;
+
+  const rowsHtml = data.length === 0
+    ? `<div style="text-align:center;padding:60px;color:rgba(255,255,255,0.3);">No registrations yet.</div>`
+    : data.map((entry, i) => `
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:24px;margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div style="font-size:1.05rem;font-weight:800;">${entry.accountName}</div>
+            <div style="font-size:0.85rem;color:rgba(255,255,255,0.5);margin-top:2px;">${entry.email} &nbsp;|&nbsp; ${entry.phone}</div>
+            <div style="margin-top:8px;">
+              <span style="background:rgba(102,255,127,0.1);border:1px solid rgba(102,255,127,0.3);color:#66ff7f;font-size:0.7rem;font-weight:700;letter-spacing:1px;padding:4px 12px;border-radius:100px;text-transform:uppercase;">${entry.ticketType || "General"}</span>
+              ${entry.registeredAt ? `<span style="font-size:0.75rem;color:rgba(255,255,255,0.3);margin-left:10px;">${new Date(entry.registeredAt).toLocaleString()}</span>` : ''}
+            </div>
+          </div>
+          <div>
+            ${entry.approved
+              ? `<span style="color:#66ff7f;font-weight:800;font-size:0.9rem;">✓ Approved</span>`
+              : `<form action="/approve/${i}" method="POST" style="margin:0;">
+                  <button type="submit" style="background:linear-gradient(135deg,#66ff7f,#00cc99);color:#000;border:none;padding:10px 22px;border-radius:8px;font-weight:800;cursor:pointer;font-size:0.85rem;">Approve & Send QR</button>
+                </form>`
+            }
+          </div>
+        </div>
+        ${entry.proof ? `
+          <div style="margin-top:16px;">
+            <div style="font-size:0.75rem;color:rgba(255,255,255,0.3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">Payment Proof</div>
+            <a href="${entry.proof}" target="_blank"><img src="${entry.proof}" alt="proof" style="max-width:140px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);" /></a>
+          </div>
+        ` : ''}
+        ${entry.qr ? `
+          <div style="margin-top:16px;">
+            <div style="font-size:0.75rem;color:rgba(255,255,255,0.3);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">QR Code</div>
+            <img src="${entry.qr}" alt="QR Code" style="max-width:120px;border-radius:8px;" />
+          </div>
+        ` : ''}
+      </div>
+    `).join("");
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+      <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+      <title>Admin — Inv3rse Lifestyle</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:'Outfit',sans-serif;background:#050a0a;color:#fff;min-height:100vh;padding:32px 20px;}
+        .container{max-width:900px;margin:0 auto;}
+        h1{font-size:2rem;font-weight:900;margin-bottom:6px;}
+        .sub{color:rgba(255,255,255,0.4);font-size:0.9rem;margin-bottom:32px;}
+        .top{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:28px;}
+        a.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:#66ff7f;font-weight:800;}
+        a.logo img{height:36px;border-radius:4px;}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="top">
+          <a class="logo" href="/"><img src="/assets/images/INV3RSE_L.jpg" alt=""/> Admin Panel</a>
+          <a href="/" style="color:rgba(255,255,255,0.4);font-size:0.85rem;text-decoration:none;">← Back to site</a>
+        </div>
+        <h1>Registrations</h1>
+        <p class="sub">Manage all attendees. Approve payments to send QR codes.</p>
+        ${statsHtml}
+        ${rowsHtml}
+      </div>
+    </body>
+    </html>
+  `);
 });
 
-// POST /approve/:id
-app.post("/approve/:id", async (req, res) => {
-  const id = req.params.id;
-  const filePath = path.join(__dirname, "data.json");
-
-  let data = [];
-  try {
-    const raw = fs.readFileSync(filePath);
-    data = JSON.parse(raw);
-  } catch {
-    return res.status(500).send("Could not read data.");
-  }
+// ─── POST /approve/:id ────────────────────────────────────────────────────────
+app.post("/approve/:id", adminAuth, async (req, res) => {
+  const id = parseInt(req.params.id);
+  const data = readData();
 
   if (!data[id]) return res.status(404).send("User not found.");
 
   data[id].approved = true;
-  const userQRData = `${data[id].accountName} | ${data[id].email} | ${data[id].phone}`;
+  const entry = data[id];
+  const userQRData = `${entry.accountName} | ${entry.email} | ${entry.phone} | ${entry.ticketType || "General"}`;
 
   const qrDir = path.join(__dirname, "public", "qrs");
-  if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir);
+  if (!fs.existsSync(qrDir)) fs.mkdirSync(qrDir, { recursive: true });
 
   const qrPath = path.join(qrDir, `qr_${id}.png`);
+
   try {
     await QRCode.toFile(qrPath, userQRData);
     data[id].qr = `/qrs/qr_${id}.png`;
+    writeData(data);
 
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+    // Send email
+    const RESEND_KEY = process.env.RESEND_KEY;
+    if (!RESEND_KEY) {
+      console.warn("⚠️  RESEND_KEY not set in .env — email skipped.");
+      writeData(data);
+      return res.redirect("/admin");
+    }
 
-    // Send email with QR code (OPTIONAL)
-    const emailData = {
+    await axios.post("https://api.resend.com/emails", {
       from: "noreply@inv3rse.com",
-      to: data[id].email,
-      subject: "Your QR Code for Event",
-      text: `Hello ${data[id].accountName},\n\nYour registration has been approved. Please find your QR code attached.\n\nBest Regards,\nInv3rse Team`,
-      attachments: [
-        {
-          filename: `qr_${id}.png`,
-          path: qrPath,
-        },
-      ],
-    };
-
-    await axios.post("https://api.resend.com/emails", emailData, {
-      headers: {
-        Authorization: `Bearer re_jnmANYA9_EAzfJwMo7rn4rgksHmzJ8qLD`,
-      },
+      to: entry.email,
+      subject: "🎟 Your QR Code — Inv3rse Lifestyle",
+      text: `Hey ${entry.accountName}!\n\nYour ${entry.ticketType || "General"} ticket has been approved.\nYour QR entry pass is attached below.\n\nSee you there!\n\n— Inv3rse Lifestyle Team`,
+      attachments: [{ filename: `qr_${id}.png`, path: qrPath }],
+    }, {
+      headers: { Authorization: `Bearer ${RESEND_KEY}` },
     });
 
-    console.log("Email sent to", data[id].email);
-    res.redirect("/admin");
+    console.log(`✅ QR sent to ${entry.email}`);
   } catch (err) {
-    console.error("QR or email failed:", err);
-    res.redirect("/admin");
+    console.error("QR/email error:", err.message);
   }
+
+  res.redirect("/admin");
 });
 
 // Start server

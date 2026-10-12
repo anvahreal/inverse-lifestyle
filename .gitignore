@@ -1,0 +1,16 @@
+# Environment variables — NEVER commit this
+.env
+.env.local
+.env.*
+
+# Node
+node_modules/
+
+# Uploads & generated files
+public/uploads/
+public/qrs/
+uploads/
+
+# OS files
+.DS_Store
+Thumbs.db
