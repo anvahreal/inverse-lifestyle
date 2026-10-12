@@ -77,8 +77,13 @@ app.post("/submit", upload.single("paymentProof"), (req, res) => {
 });
 
 // ─── Admin Auth ───────────────────────────────────────────────────────────────
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS = process.env.ADMIN_PASS || "secret123";
+const ADMIN_USER = process.env.ADMIN_USER;
+const ADMIN_PASS = process.env.ADMIN_PASS;
+
+if (!ADMIN_USER || !ADMIN_PASS) {
+  console.error("❌  ADMIN_USER and ADMIN_PASS must be set in .env");
+  process.exit(1); // Refuse to start without credentials
+}
 
 const adminAuth = (req, res, next) => {
   const b64auth = (req.headers.authorization || "").split(" ")[1] || "";
