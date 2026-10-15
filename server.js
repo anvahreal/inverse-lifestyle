@@ -87,6 +87,18 @@ app.post("/submit", upload.single("paymentProof"), (req, res) => {
   res.redirect("/thankyou.html");
 });
 
+// ─── Admin Auth ───────────────────────────────────────────────────────────────
+const ADMIN_USER = process.env.ADMIN_USER;
+const ADMIN_PASS = process.env.ADMIN_PASS;
+
+const adminAuth = (req, res, next) => {
+  const b64 = (req.headers.authorization || "").split(" ")[1] || "";
+  const [login, pass] = Buffer.from(b64, "base64").toString().split(":");
+  if (login === ADMIN_USER && pass === ADMIN_PASS) return next();
+  res.set("WWW-Authenticate", 'Basic realm="Admin Area"');
+  res.status(401).send("Authentication required.");
+};
+
 
 // ─── GET /admin ───────────────────────────────────────────────────────────────
 app.get("/admin", adminAuth, (req, res) => {
