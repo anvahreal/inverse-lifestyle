@@ -91,6 +91,11 @@ app.post("/submit", upload.single("paymentProof"), (req, res) => {
 const ADMIN_USER = process.env.ADMIN_USER;
 const ADMIN_PASS = process.env.ADMIN_PASS;
 
+if (!process.env.ADMIN_USER || !process.env.ADMIN_PASS) {
+  console.error("❌ Fatal Error: ADMIN_USER and ADMIN_PASS must be set in environment variables.");
+  process.exit(1);
+}
+
 const adminAuth = (req, res, next) => {
   const b64 = (req.headers.authorization || "").split(" ")[1] || "";
   const [login, pass] = Buffer.from(b64, "base64").toString().split(":");
@@ -206,12 +211,14 @@ app.post("/approve/:id", adminAuth, async (req, res) => {
       return res.redirect("/admin");
     }
 
+    const qrBase64 = fs.readFileSync(qrPath).toString("base64");
+
     await axios.post("https://api.resend.com/emails", {
       from: "noreply@indigenouslifestyle.com",
       to: e.email,
       subject: `🎟 Your QR Code — Indigenous Lifestyle Y2K Party`,
       text: `Hey ${e.accountName}!\n\nYour ${e.ticketType} ticket has been approved! 🎉\n\nYour QR entry pass is attached. Show it at the door on Nov 7, 2026.\n\nSee you there!\n\n— Indigenous Lifestyle Team`,
-      attachments: [{ filename: `qr_${id}.png`, path: qrPath }],
+      attachments: [{ filename: `qr_${id}.png`, content: qrBase64 }],
     }, { headers: { Authorization: `Bearer ${RESEND_KEY}` } });
 
     console.log(`✅ QR sent to ${e.email}`);
