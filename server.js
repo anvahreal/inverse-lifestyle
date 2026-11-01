@@ -214,7 +214,7 @@ app.post("/approve/:id", adminAuth, async (req, res) => {
     const qrBase64 = fs.readFileSync(qrPath).toString("base64");
 
     await axios.post("https://api.resend.com/emails", {
-      from: "noreply@indigenouslifestyle.com",
+      from: "onboarding@resend.dev",
       to: e.email,
       subject: `🎟 Your QR Code — Indigenous Lifestyle Y2K Party`,
       text: `Hey ${e.accountName}!\n\nYour ${e.ticketType} ticket has been approved! 🎉\n\nYour QR entry pass is attached. Show it at the door on Nov 7, 2026.\n\nSee you there!\n\n— Indigenous Lifestyle Team`,
