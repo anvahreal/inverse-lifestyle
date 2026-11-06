@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const QRCode = require("qrcode");
 const axios = require("axios");
+const nodemailer = require("nodemailer");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -205,21 +206,31 @@ app.post("/approve/:id", adminAuth, async (req, res) => {
     data[id].qr = `/qrs/qr_${id}.png`;
     writeData(data);
 
-    const RESEND_KEY = process.env.RESEND_KEY;
-    if (!RESEND_KEY) {
-      console.warn("⚠️  RESEND_KEY not set — email skipped.");
+    const GMAIL_USER = process.env.GMAIL_USER;
+    const GMAIL_PASS = process.env.GMAIL_PASS;
+
+    if (!GMAIL_USER || !GMAIL_PASS) {
+      console.warn("⚠️  GMAIL_USER or GMAIL_PASS not set — email skipped.");
       return res.redirect("/admin");
     }
 
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: GMAIL_USER,
+        pass: GMAIL_PASS,
+      },
+    });
+
     const qrBase64 = fs.readFileSync(qrPath).toString("base64");
 
-    await axios.post("https://api.resend.com/emails", {
-      from: "onboarding@resend.dev",
+    await transporter.sendMail({
+      from: `"Indigenous Lifestyle" <${GMAIL_USER}>`,
       to: e.email,
       subject: `🎟 Your QR Code — Indigenous Lifestyle Y2K Party`,
       text: `Hey ${e.accountName}!\n\nYour ${e.ticketType} ticket has been approved! 🎉\n\nYour QR entry pass is attached. Show it at the door on Nov 7, 2026.\n\nSee you there!\n\n— Indigenous Lifestyle Team`,
-      attachments: [{ filename: `qr_${id}.png`, content: qrBase64 }],
-    }, { headers: { Authorization: `Bearer ${RESEND_KEY}` } });
+      attachments: [{ filename: `qr_${id}.png`, content: qrBase64, encoding: "base64" }],
+    });
 
     console.log(`✅ QR sent to ${e.email}`);
   } catch (err) {
